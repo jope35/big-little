@@ -14,7 +14,6 @@ The plugin ships two subagents — `bulk-reader` (read-only explorer) and `code-
 (boilerplate generator that writes via `edit`) — plus a `tool.execute.before` routing hook
 that hard-blocks large full-file reads and redirects them to `bulk-reader`.
 
-This spec follows Approach A (full npm package, OpenCode-native only) as approved.
 
 ## 2. Goals / non-goals
 
