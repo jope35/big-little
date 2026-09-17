@@ -41,6 +41,26 @@ export function countLines(filePath: string): number | null {
   }
 }
 
+const BASH_READ_RE = /\b(cat|head|tail|less|more)\s+([^|;&\n]+)/g;
+const BASH_TOKEN_RE = /'[^']*'|"[^"]*"|\S+/g;
+
+export function extractBashTargets(command: string): string[] {
+  if (command.includes("|")) return [];
+  const targets: string[] = [];
+  for (const match of command.matchAll(BASH_READ_RE)) {
+    const rest = (match[2] ?? "").trim();
+    for (const token of rest.match(BASH_TOKEN_RE) ?? []) {
+      if (!token || token.startsWith("-")) continue;
+      if (/^[+-]?\d+$/.test(token)) continue; // flag value, e.g. `20` in `head -n 20 file`
+      if (token.startsWith("$") || token.includes("*")) continue;
+      if (token.startsWith("<")) break; // stdin redirect (`cat < file`): no file operand
+      targets.push(token.replace(/^['"]|['"]$/g, ""));
+      break;
+    }
+  }
+  return targets;
+}
+
 export const BigLittlePlugin: Plugin = async () => {
   return {};
 };

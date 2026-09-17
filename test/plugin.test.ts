@@ -7,6 +7,7 @@ import {
   resolveThreshold,
   countLines,
   DEFAULT_MIN_LINES,
+  extractBashTargets,
 } from "../src/index.ts";
 
 describe("resolveThreshold", () => {
@@ -62,5 +63,39 @@ describe("countLines", () => {
 
   it("returns null for missing file", () => {
     assert.equal(countLines("/no/such/file-xyz.txt"), null);
+  });
+});
+
+describe("extractBashTargets", () => {
+  it("extracts single cat target", () => {
+    assert.deepEqual(extractBashTargets("cat bigfile.txt"), ["bigfile.txt"]);
+  });
+
+  it("returns empty for piped commands", () => {
+    assert.deepEqual(extractBashTargets("cat bigfile.txt | head -20"), []);
+  });
+
+  it("skips flags and picks file", () => {
+    assert.deepEqual(extractBashTargets("head -n 20 bigfile.txt"), ["bigfile.txt"]);
+  });
+
+  it("skips vars, redirects, globs", () => {
+    assert.deepEqual(extractBashTargets("cat $FILE"), []);
+    assert.deepEqual(extractBashTargets("cat < bigfile.txt"), []);
+    assert.deepEqual(extractBashTargets("cat *.txt"), []);
+  });
+
+  it("strips quotes", () => {
+    assert.deepEqual(extractBashTargets('cat "my file.txt"'), ["my file.txt"]);
+  });
+
+  it("scans compound commands as a whole", () => {
+    assert.deepEqual(extractBashTargets("echo hi; cat bigfile.txt"), ["bigfile.txt"]);
+    assert.deepEqual(extractBashTargets("echo hi && head small.txt"), ["small.txt"]);
+  });
+
+  it("ignores non-read commands", () => {
+    assert.deepEqual(extractBashTargets("ls -la"), []);
+    assert.deepEqual(extractBashTargets("grep foo bigfile.txt"), []);
   });
 });
