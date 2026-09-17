@@ -41,6 +41,83 @@ With options (tuple form):
 
 `PORTAL_MIN_LINES` and `PORTAL_*_MODEL` are not honored.
 
+There is no `bigModel` option. The big model is whatever you configured for OpenCode. Workers inherit it unless you pin them below.
+
+## Examples
+
+1. Defaults only (350-line threshold, workers inherit your model):
+
+```json
+{
+  "plugin": ["big-little"]
+}
+```
+
+2. Custom threshold only:
+
+```json
+{
+  "plugin": [["big-little", { "minLines": 500 }]]
+}
+```
+
+3. Cheap bulk-reader only (the main cost saver; threshold stays 350):
+
+```json
+{
+  "plugin": [["big-little", { "bulkReaderModel": "anthropic/claude-haiku-4-20250514" }]]
+}
+```
+
+4. Code-writer model only:
+
+```json
+{
+  "plugin": [["big-little", { "codeWriterModel": "anthropic/claude-haiku-4-20250514" }]]
+}
+```
+
+5. Both workers pinned, default threshold:
+
+```json
+{
+  "plugin": [
+    [
+      "big-little",
+      {
+        "bulkReaderModel": "anthropic/claude-haiku-4-20250514",
+        "codeWriterModel": "anthropic/claude-haiku-4-20250514"
+      }
+    ]
+  ]
+}
+```
+
+6. Everything set:
+
+```json
+{
+  "plugin": [
+    [
+      "big-little",
+      {
+        "minLines": 500,
+        "bulkReaderModel": "anthropic/claude-haiku-4-20250514",
+        "codeWriterModel": "anthropic/claude-haiku-4-20250514"
+      }
+    ]
+  ]
+}
+```
+
+Any option left out falls back to its env var, then the default (see table above). Env-only setup with zero options:
+
+```bash
+export BIGLITTLE_MIN_LINES=500
+export BIGLITTLE_BULK_READER_MODEL=anthropic/claude-haiku-4-20250514
+export BIGLITTLE_CODE_WRITER_MODEL=anthropic/claude-haiku-4-20250514
+```
+
 ## What it does
 
 - Registers `bulk-reader` (read-only explorer) and `code-writer` (boilerplate writer via `edit`).
