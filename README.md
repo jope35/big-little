@@ -36,12 +36,14 @@ With options (tuple form):
 | Option | Env fallback | Default | Rule |
 | --- | --- | --- | --- |
 | `minLines` | `BIGLITTLE_MIN_LINES`, then deprecated `SHUNT_MIN_LINES` | `350` | Positive integer. Zero, negative, or garbage means `350`. |
-| `bulkReaderModel` | `BIGLITTLE_BULK_READER_MODEL` | unset (inherit caller model) | Example `anthropic/claude-haiku-4-20250514`. |
+| `bulkReaderModel` | `BIGLITTLE_BULK_READER_MODEL` | unset (inherit caller model) | Example `opencode/nemotron-3.5-lightning-free`. |
 | `codeWriterModel` | `BIGLITTLE_CODE_WRITER_MODEL` | unset (inherit caller model) | Same semantics. |
 
 `PORTAL_MIN_LINES` and `PORTAL_*_MODEL` are not honored.
 
 There is no `bigModel` option. The big model is whatever you configured for OpenCode. Workers inherit it unless you pin them below.
+
+Model picks below are [OpenCode Zen](https://opencode.ai/docs/zen/#pricing) free-tier models (`opencode/nemotron-3.5-lightning-free` reads, `opencode/mimo-v2.5-free` writes), so most users already have them. Free-tier availability is limited-time — run `/models` in the TUI to confirm before pinning.
 
 ## Examples
 
@@ -65,7 +67,7 @@ There is no `bigModel` option. The big model is whatever you configured for Open
 
 ```json
 {
-  "plugin": [["big-little", { "bulkReaderModel": "anthropic/claude-haiku-4-20250514" }]]
+  "plugin": [["big-little", { "bulkReaderModel": "opencode/nemotron-3.5-lightning-free" }]]
 }
 ```
 
@@ -73,7 +75,7 @@ There is no `bigModel` option. The big model is whatever you configured for Open
 
 ```json
 {
-  "plugin": [["big-little", { "codeWriterModel": "anthropic/claude-haiku-4-20250514" }]]
+  "plugin": [["big-little", { "codeWriterModel": "opencode/mimo-v2.5-free" }]]
 }
 ```
 
@@ -85,8 +87,8 @@ There is no `bigModel` option. The big model is whatever you configured for Open
     [
       "big-little",
       {
-        "bulkReaderModel": "anthropic/claude-haiku-4-20250514",
-        "codeWriterModel": "anthropic/claude-haiku-4-20250514"
+        "bulkReaderModel": "opencode/nemotron-3.5-lightning-free",
+        "codeWriterModel": "opencode/mimo-v2.5-free"
       }
     ]
   ]
@@ -102,8 +104,8 @@ There is no `bigModel` option. The big model is whatever you configured for Open
       "big-little",
       {
         "minLines": 500,
-        "bulkReaderModel": "anthropic/claude-haiku-4-20250514",
-        "codeWriterModel": "anthropic/claude-haiku-4-20250514"
+        "bulkReaderModel": "opencode/nemotron-3.5-lightning-free",
+        "codeWriterModel": "opencode/mimo-v2.5-free"
       }
     ]
   ]
@@ -114,8 +116,8 @@ Any option left out falls back to its env var, then the default (see table above
 
 ```bash
 export BIGLITTLE_MIN_LINES=500
-export BIGLITTLE_BULK_READER_MODEL=anthropic/claude-haiku-4-20250514
-export BIGLITTLE_CODE_WRITER_MODEL=anthropic/claude-haiku-4-20250514
+export BIGLITTLE_BULK_READER_MODEL=opencode/nemotron-3.5-lightning-free
+export BIGLITTLE_CODE_WRITER_MODEL=opencode/mimo-v2.5-free
 ```
 
 ## What it does
