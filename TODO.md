@@ -12,8 +12,8 @@ Remaining work after `feat-big-little` (plan: `docs/superpowers/plans/2026-09-16
 ## Open
 
 - [x] Open PR: https://github.com/jope35/big-little/pull/1 (base `main`)
-- [ ] TUI check: `@bulk-reader` and `@code-writer` autocomplete in a fixture session
-- [ ] Token benchmark (release gate, plan Task 7 Step 6): freeze corpus + threshold, run direct vs delegated vs code-writer, record counts with release notes
+- [x] TUI check: `@bulk-reader` and `@code-writer` autocomplete in a fixture session
+- [x] Token benchmark (release gate, plan Task 7 Step 6): corpus v1 + `minLines: 100`, runs A/B (free-tier) + C (paid primary, free-tier blocks edit-subagents), counts in `benchmark/results.md`
 - [ ] Release: `npm run build`, publish `big-little` to npm, record OpenCode version (`1.18.31`) and `@opencode-ai/plugin` version with release notes
 
 ## How to execute
@@ -35,6 +35,7 @@ Subagents surface in the TUI only via `@` mentions (Tab cycles primaries; `@` in
 Goal is a recorded before/after, not a promised percent. If delegation costs more, keep the result and note why.
 
 1. Freeze the corpus: one multi-file Q&A task + one spec-plus-reference generation task. Commit the files and note the threshold (`minLines`) — same value for all runs.
+   Setup is frozen in `benchmark/`. The corpus is VERSION 1. The threshold is `minLines: 100`. The prompts are in `benchmark/README.md`. The script `scripts/benchmark-setup.sh` makes the run folders. Results go in `benchmark/results.md`.
 2. Run A (baseline): answer both tasks with direct reads. Note input + output tokens from the session token display.
 3. Run B (delegated reads): answer the Q&A task via `@bulk-reader` summary, then re-read only edit targets with `offset/limit`. Note tokens.
 4. Run C (delegated write): generate from spec + reference via `@code-writer`; caller reads the reference only, generated code stays out of chat. Note tokens.
