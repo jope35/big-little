@@ -1,5 +1,10 @@
 # big-little
 
+[![npm version](https://img.shields.io/npm/v/big-little.svg)](https://www.npmjs.com/package/big-little)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D22-green.svg)](https://nodejs.org)
+[![OpenCode](https://img.shields.io/badge/OpenCode-1.18%2B-blue.svg)](https://opencode.ai)
+
 OpenCode plugin. Big model keeps orchestration. Little worker subagents do bulk reads and boilerplate.
 
 Requires OpenCode 1.x (1.18 or later). OpenCode 2 beta is not supported.
@@ -39,9 +44,6 @@ With options (tuple form):
 | `bulkReaderModel` | `BIGLITTLE_BULK_READER_MODEL` | unset (inherit caller model) | Example `opencode/nemotron-3.5-lightning-free`. |
 | `codeWriterModel` | `BIGLITTLE_CODE_WRITER_MODEL` | unset (inherit caller model) | Same semantics. |
 
-`PORTAL_MIN_LINES` and `PORTAL_*_MODEL` are not honored.
-
-There is no `bigModel` option. The big model is whatever you configured for OpenCode. Workers inherit it unless you pin them below.
 
 Model picks below are [OpenCode Zen](https://opencode.ai/docs/zen/#pricing) free-tier models (`opencode/nemotron-3.5-lightning-free` reads, `opencode/mimo-v2.5-free` writes), so most users already have them. Free-tier availability is limited-time — run `/models` in the TUI to confirm before pinning.
 
