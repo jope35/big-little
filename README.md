@@ -134,35 +134,38 @@ export BIGLITTLE_CODE_WRITER_MODEL=opencode/mimo-v2.5-free
 
 ## How it works
 
-C4 container view (drawn in standard flowchart syntax because GitHub's Mermaid renderer has no C4 plugin — boundaries and relationships follow C4 semantics):
+### bulk-reader flow
 
 ```mermaid
 flowchart LR
-    dev(["Developer"])
-    subgraph session["OpenCode session"]
-        primary["Primary agent<br/>(big model, your configured model)"]
-        subgraph plugin["big-little plugin"]
-            cfg["config hook<br/>registers agents"]
-            hook["tool.execute.before hook<br/>minLines threshold, default 350"]
-        end
-        br["bulk-reader subagent<br/>(read-only explorer)"]
-        cw["code-writer subagent<br/>(boilerplate via edit)"]
-    end
+    primary["Primary agent"]
+    hook["tool.execute.before hook"]
+    br["bulk-reader subagent"]
     code[("Codebase")]
 
-    dev --> primary
-    primary -- "full read over threshold" --> hook
+    primary -- "full read, file over minLines" --> hook
     hook -- "block: delegate to bulk-reader" --> br
-    hook -- "targeted read (offset/limit)" --> code
-    br -- "summary + line refs" --> primary
-    primary -- "re-read section, then edit" --> code
-    primary -- "spec + reference file" --> cw
-    cw -- "writes file via edit" --> code
+    br -- "grep / glob / narrow reads" --> code
+    br -- "summary + paths + line numbers" --> primary
+    primary -- "offset/limit re-read of edit target" --> code
+    primary -- "edit" --> code
 ```
 
-1. `config` hook registers `bulk-reader` and `code-writer` alongside your agents.
-2. Every `read`/`bash` tool call passes `tool.execute.before`: over-threshold full reads throw a block message naming `bulk-reader`; targeted reads and pipes pass through.
-3. The big model delegates bulk exploration to `bulk-reader`, re-reads only the lines it needs, and sends boilerplate specs to `code-writer`.
+Targeted reads (`offset`/`limit` set) and piped shell commands skip the hook entirely.
+
+### code-writer flow
+
+```mermaid
+flowchart LR
+    primary2["Primary agent"]
+    cw["code-writer subagent"]
+    code2[("Codebase")]
+
+    primary2 -- "spec + reference file + target path" --> cw
+    cw -- "read reference, match patterns" --> code2
+    cw -- "write finished file via edit" --> code2
+    primary2 -- "run tests + lint (writer has no bash)" --> code2
+```
 
 ## What it does
 
