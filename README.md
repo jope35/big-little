@@ -7,6 +7,16 @@
 
 OpenCode plugin. Big model keeps orchestration. Little worker subagents do bulk reads and boilerplate.
 
+## Contents
+
+- [Install](#install)
+- [Verify your install](#verify-your-install)
+- [Configuration](#configuration)
+- [Examples](#examples)
+- [How it works](#how-it-works)
+- [What it does](#what-it-does)
+- [Limits](#limits)
+
 Requires OpenCode 1.x (1.18 or later). OpenCode 2 beta is not supported.
 
 ## Install
@@ -121,6 +131,38 @@ export BIGLITTLE_MIN_LINES=500
 export BIGLITTLE_BULK_READER_MODEL=opencode/nemotron-3.5-lightning-free
 export BIGLITTLE_CODE_WRITER_MODEL=opencode/mimo-v2.5-free
 ```
+
+## How it works
+
+C4 container view (drawn in standard flowchart syntax because GitHub's Mermaid renderer has no C4 plugin — boundaries and relationships follow C4 semantics):
+
+```mermaid
+flowchart LR
+    dev(["Developer"])
+    subgraph session["OpenCode session"]
+        primary["Primary agent<br/>(big model, your configured model)"]
+        subgraph plugin["big-little plugin"]
+            cfg["config hook<br/>registers agents"]
+            hook["tool.execute.before hook<br/>minLines threshold, default 350"]
+        end
+        br["bulk-reader subagent<br/>(read-only explorer)"]
+        cw["code-writer subagent<br/>(boilerplate via edit)"]
+    end
+    code[("Codebase")]
+
+    dev --> primary
+    primary -- "full read over threshold" --> hook
+    hook -- "block: delegate to bulk-reader" --> br
+    hook -- "targeted read (offset/limit)" --> code
+    br -- "summary + line refs" --> primary
+    primary -- "re-read section, then edit" --> code
+    primary -- "spec + reference file" --> cw
+    cw -- "writes file via edit" --> code
+```
+
+1. `config` hook registers `bulk-reader` and `code-writer` alongside your agents.
+2. Every `read`/`bash` tool call passes `tool.execute.before`: over-threshold full reads throw a block message naming `bulk-reader`; targeted reads and pipes pass through.
+3. The big model delegates bulk exploration to `bulk-reader`, re-reads only the lines it needs, and sends boilerplate specs to `code-writer`.
 
 ## What it does
 
