@@ -179,6 +179,66 @@ export async function applyAgentConfig(cfg: any, options: BigLittleOptions = {})
   };
 }
 
+export function buildReadBlockMessage(lines: number, minLines: number): string {
+  return (
+    `File is ${lines} lines (threshold: ${minLines}). ` +
+    `Delegate to the bulk-reader subagent instead of reading it directly. ` +
+    `If you need exact content for editing, re-read with offset/limit for just the section you need.`
+  );
+}
+
+export function buildBashBlockMessage(lines: number, minLines: number): string {
+  return (
+    `File is ${lines} lines (threshold: ${minLines}). ` +
+    `Do not cat large files into context — delegate to the bulk-reader subagent instead, ` +
+    `or use a targeted read (grep, offset/limit) for the section you need.`
+  );
+}
+
+export function checkReadRequest(
+  args: { filePath?: string; offset?: number | null; limit?: number | null },
+  minLines: number
+): string | null {
+  if (args.offset != null || args.limit != null) return null;
+  if (!args.filePath) return null;
+  const lines = countLines(args.filePath);
+  if (lines === null || lines <= minLines) return null;
+  return buildReadBlockMessage(lines, minLines);
+}
+
+export function checkBashRequest(command: unknown, minLines: number): string | null {
+  if (typeof command !== "string") return null;
+  for (const target of extractBashTargets(command)) {
+    const lines = countLines(target);
+    if (lines !== null && lines > minLines) {
+      return buildBashBlockMessage(lines, minLines);
+    }
+  }
+  return null;
+}
+
+export function handleToolBefore(
+  input: { tool?: unknown },
+  output: { args?: Record<string, unknown> },
+  minLines: number
+): void {
+  const tool = String(input?.tool ?? "").toLowerCase();
+  const args = (output?.args ?? {}) as Record<string, any>;
+  if (tool === "read") {
+    const msg = checkReadRequest(
+      { filePath: args.filePath, offset: args.offset, limit: args.limit },
+      minLines
+    );
+    if (msg !== null) throw new Error(msg);
+    return;
+  }
+  if (tool === "bash") {
+    const msg = checkBashRequest(args.command, minLines);
+    if (msg !== null) throw new Error(msg);
+    return;
+  }
+}
+
 export const BigLittlePlugin: Plugin = async () => {
   return {};
 };

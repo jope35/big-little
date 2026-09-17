@@ -10,6 +10,9 @@ import {
   extractBashTargets,
   buildAgentConfig,
   applyAgentConfig,
+  checkReadRequest,
+  checkBashRequest,
+  handleToolBefore,
 } from "../src/index.ts";
 
 describe("resolveThreshold", () => {
@@ -165,5 +168,66 @@ describe("agent permissions", () => {
     assert.ok(cfg.agent["my-agent"], "user agent must survive");
     assert.ok(cfg.agent["bulk-reader"], "bulk-reader must exist");
     assert.ok(cfg.agent["code-writer"], "code-writer must exist");
+  });
+});
+
+describe("routing", () => {
+  it("allows small read and blocks big read", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bl-route-"));
+    const small = join(dir, "small.txt");
+    const big = join(dir, "big.txt");
+    writeFileSync(small, "a\nb");
+    writeFileSync(big, Array(400).fill("x").join("\n"));
+    assert.equal(checkReadRequest({ filePath: small }, 350), null);
+    const msg = checkReadRequest({ filePath: big }, 350);
+    assert.ok(msg);
+    assert.ok(msg!.includes("bulk-reader"));
+    assert.ok(msg!.includes("offset/limit"));
+    assert.ok(!msg!.includes("xxxxx"), "message must not include file contents");
+    rmSync(dir, { recursive: true });
+  });
+
+  it("allows targeted read even on big file", () => {
+    assert.equal(checkReadRequest({ filePath: "big.txt", offset: 1, limit: 10 }, 350), null);
+    assert.equal(checkReadRequest({ filePath: "big.txt", offset: 1 }, 350), null);
+    assert.equal(checkReadRequest({ filePath: "big.txt", limit: 10 }, 350), null);
+  });
+
+  it("allows missing path", () => {
+    assert.equal(checkReadRequest({}, 350), null);
+    assert.equal(checkReadRequest({ filePath: "" }, 350), null);
+    assert.equal(checkReadRequest({ filePath: "/no/such.txt" }, 350), null);
+  });
+
+  it("blocks big cat and allows piped, small, non-string", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bl-bash-"));
+    const big = join(dir, "big.txt");
+    const small = join(dir, "small.txt");
+    writeFileSync(big, Array(400).fill("y").join("\n"));
+    writeFileSync(small, "hi");
+    const blockMsg = checkBashRequest(`cat ${big}`, 350);
+    assert.ok(blockMsg);
+    assert.ok(blockMsg!.includes("bulk-reader"));
+    assert.equal(checkBashRequest(`cat ${small}`, 350), null);
+    assert.equal(checkBashRequest(`cat ${big} | head -20`, 350), null);
+    assert.equal(checkBashRequest("cat $FILE", 350), null);
+    assert.equal(checkBashRequest(12345, 350), null);
+    assert.equal(checkBashRequest("ls -la", 350), null);
+    rmSync(dir, { recursive: true });
+  });
+
+  it("handleToolBefore throws only on block and ignores other tools", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bl-hook-"));
+    const big = join(dir, "big.txt");
+    writeFileSync(big, Array(400).fill("z").join("\n"));
+    assert.throws(() => handleToolBefore({ tool: "READ" }, { args: { filePath: big } }, 350));
+    assert.doesNotThrow(() =>
+      handleToolBefore({ tool: "read" }, { args: { filePath: big, limit: 5 } }, 350)
+    );
+    assert.doesNotThrow(() =>
+      handleToolBefore({ tool: "edit" }, { args: { filePath: big } }, 350)
+    );
+    assert.doesNotThrow(() => handleToolBefore({}, {}, 350));
+    rmSync(dir, { recursive: true });
   });
 });
