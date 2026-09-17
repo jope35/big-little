@@ -13,7 +13,9 @@ import {
   checkReadRequest,
   checkBashRequest,
   handleToolBefore,
+  BigLittlePlugin,
 } from "../src/index.ts";
+import BigLittleModuleDefault from "../src/index.ts";
 
 describe("resolveThreshold", () => {
   it("defaults to 350 when no option and no env", () => {
@@ -228,6 +230,62 @@ describe("routing", () => {
       handleToolBefore({ tool: "edit" }, { args: { filePath: big } }, 350)
     );
     assert.doesNotThrow(() => handleToolBefore({}, {}, 350));
+    rmSync(dir, { recursive: true });
+  });
+});
+
+describe("BigLittlePlugin wiring", () => {
+  it("default-exports a PluginModule wrapping BigLittlePlugin", () => {
+    const mod: any = BigLittleModuleDefault;
+    assert.equal(mod.id, "big-little");
+    assert.strictEqual(mod.server, BigLittlePlugin);
+  });
+
+  it("exposes config and tool.execute.before hooks", async () => {
+    const plugin: any = await BigLittlePlugin({} as any);
+    assert.ok(typeof plugin.config === "function");
+    assert.ok(typeof plugin["tool.execute.before"] === "function");
+    assert.ok(!("event" in plugin), "event hook must not exist in v1");
+  });
+
+  it("config hook preserves user agents", async () => {
+    const plugin: any = await BigLittlePlugin({} as any);
+    const cfg: any = { agent: { mine: { mode: "primary" } } };
+    await plugin.config(cfg);
+    assert.ok(cfg.agent.mine);
+    assert.ok(cfg.agent["bulk-reader"]);
+    assert.ok(cfg.agent["code-writer"]);
+  });
+
+  it("tool hook blocks big read and passes targeted read", async () => {
+    const plugin: any = await BigLittlePlugin({} as any, { minLines: 350 });
+    const dir = mkdtempSync(join(tmpdir(), "bl-wire-"));
+    const big = join(dir, "big.txt");
+    writeFileSync(big, Array(400).fill("w").join("\n"));
+    await assert.rejects(
+      plugin["tool.execute.before"](
+        { tool: "read", sessionID: "s", callID: "c" },
+        { args: { filePath: big } }
+      )
+    );
+    await plugin["tool.execute.before"](
+      { tool: "read", sessionID: "s", callID: "c" },
+      { args: { filePath: big, limit: 5 } }
+    );
+    rmSync(dir, { recursive: true });
+  });
+
+  it("options come from the second argument", async () => {
+    const plugin: any = await BigLittlePlugin({} as any, { minLines: 10 });
+    const dir = mkdtempSync(join(tmpdir(), "bl-opts-"));
+    const medium = join(dir, "medium.txt");
+    writeFileSync(medium, "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk"); // 11 lines
+    await assert.rejects(
+      plugin["tool.execute.before"](
+        { tool: "read", sessionID: "s", callID: "c" },
+        { args: { filePath: medium } }
+      )
+    );
     rmSync(dir, { recursive: true });
   });
 });

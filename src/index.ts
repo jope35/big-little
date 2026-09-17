@@ -239,8 +239,28 @@ export function handleToolBefore(
   }
 }
 
-export const BigLittlePlugin: Plugin = async () => {
-  return {};
+export const BigLittlePlugin: Plugin = async (_input: any, options?: any) => {
+  const opts: BigLittleOptions =
+    options && typeof options === "object" ? (options as BigLittleOptions) : {};
+  const minLines = resolveThreshold(opts);
+
+  return {
+    config: async (cfg: any) => {
+      await applyAgentConfig(cfg, opts);
+    },
+    "tool.execute.before": async (input: any, output: any) => {
+      try {
+        handleToolBefore(
+          { tool: input?.tool },
+          { args: (output?.args ?? {}) as Record<string, unknown> },
+          minLines
+        );
+      } catch (err) {
+        // Fail open on unexpected errors; only deliberate block throws leave.
+        if (err instanceof Error && err.message.startsWith("File is ")) throw err;
+      }
+    },
+  };
 };
 
 export default { id: "big-little", server: BigLittlePlugin } satisfies PluginModule;
