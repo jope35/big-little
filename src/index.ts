@@ -62,7 +62,7 @@ export function extractBashTargets(command: string): string[] {
 }
 
 export const BULK_READER_DESCRIPTION =
-  "Fast read-only codebase explorer for large files and multi-file questions. Use when you need to read files over ~350 lines, answer questions spanning multiple files, or map code patterns without loading full files into context. Specify thoroughness: quick, medium, or very thorough.";
+  "Fast read-only codebase explorer for large files and multi-file questions. Use when you need to read files over the minLines threshold (default 350 lines, user-overridable via plugin option or env), answer questions spanning multiple files, or map code patterns without loading full files into context. Specify thoroughness: quick, medium, or very thorough.";
 
 export const BULK_READER_PROMPT = `You are a codebase exploration specialist focused on fast, accurate, read-only navigation.
 

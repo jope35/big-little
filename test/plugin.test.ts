@@ -131,8 +131,9 @@ describe("agent permissions", () => {
     assert.equal(br.permission.bash["rg*"], "allow");
     assert.equal(br.permission.bash["wc*"], "allow");
     assert.ok(!("model" in br), "model key must be absent when unset");
+    assert.ok(br.description.includes("minLines"), "description must name the threshold option");
+    assert.ok(br.description.includes("350"), "description must state the default");
   });
-
   it("code-writer can edit but has no bash or network", () => {
     const agents: any = buildAgentConfig({});
     const cw = agents["code-writer"];
