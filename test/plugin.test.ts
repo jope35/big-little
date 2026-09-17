@@ -8,6 +8,8 @@ import {
   countLines,
   DEFAULT_MIN_LINES,
   extractBashTargets,
+  buildAgentConfig,
+  applyAgentConfig,
 } from "../src/index.ts";
 
 describe("resolveThreshold", () => {
@@ -97,5 +99,71 @@ describe("extractBashTargets", () => {
   it("ignores non-read commands", () => {
     assert.deepEqual(extractBashTargets("ls -la"), []);
     assert.deepEqual(extractBashTargets("grep foo bigfile.txt"), []);
+  });
+});
+
+describe("agent permissions", () => {
+  it("bulk-reader is deny-all with read tools and narrow bash map", () => {
+    const agents: any = buildAgentConfig({});
+    const br = agents["bulk-reader"];
+    assert.equal(br.mode, "subagent");
+    assert.equal(br.temperature, 0.2);
+    assert.equal(br.permission["*"], "deny");
+    assert.equal(br.permission.read, "allow");
+    assert.equal(br.permission.grep, "allow");
+    assert.equal(br.permission.glob, "allow");
+    assert.equal(br.permission.list, "allow");
+    assert.equal(br.permission.webfetch, "allow");
+    assert.equal(br.permission.websearch, "allow");
+    assert.equal(br.permission.edit, "deny");
+    assert.equal(br.permission.task, "deny");
+    assert.equal(br.permission.bash["*"], "deny");
+    assert.equal(br.permission.bash["ls*"], "allow");
+    assert.equal(br.permission.bash["git log*"], "allow");
+    assert.equal(br.permission.bash["git status*"], "allow");
+    assert.equal(br.permission.bash["git diff*"], "allow");
+    assert.equal(br.permission.bash["grep*"], "allow");
+    assert.equal(br.permission.bash["rg*"], "allow");
+    assert.equal(br.permission.bash["wc*"], "allow");
+    assert.ok(!("model" in br), "model key must be absent when unset");
+  });
+
+  it("code-writer can edit but has no bash or network", () => {
+    const agents: any = buildAgentConfig({});
+    const cw = agents["code-writer"];
+    assert.equal(cw.mode, "subagent");
+    assert.equal(cw.temperature, 0.2);
+    assert.equal(cw.permission["*"], "deny");
+    assert.equal(cw.permission.read, "allow");
+    assert.equal(cw.permission.edit, "allow");
+    assert.equal(cw.permission.glob, "allow");
+    assert.equal(cw.permission.grep, "allow");
+    assert.equal(cw.permission.list, "allow");
+    assert.equal(cw.permission.bash, "deny");
+    assert.equal(cw.permission.webfetch, "deny");
+    assert.equal(cw.permission.websearch, "deny");
+    assert.equal(cw.permission.task, "deny");
+  });
+
+  it("sets model only when provided via option or env", () => {
+    delete process.env.BIGLITTLE_BULK_READER_MODEL;
+    delete process.env.BIGLITTLE_CODE_WRITER_MODEL;
+    let agents: any = buildAgentConfig({
+      bulkReaderModel: "anthropic/claude-haiku-4-20250514",
+    });
+    assert.equal(agents["bulk-reader"].model, "anthropic/claude-haiku-4-20250514");
+    assert.ok(!("model" in agents["code-writer"]));
+    process.env.BIGLITTLE_CODE_WRITER_MODEL = "anthropic/claude-haiku-4-20250514";
+    agents = buildAgentConfig({});
+    assert.equal(agents["code-writer"].model, "anthropic/claude-haiku-4-20250514");
+    delete process.env.BIGLITTLE_CODE_WRITER_MODEL;
+  });
+
+  it("config hook merges and never removes user agents", async () => {
+    const cfg: any = { agent: { "my-agent": { mode: "primary" } } };
+    await applyAgentConfig(cfg, {});
+    assert.ok(cfg.agent["my-agent"], "user agent must survive");
+    assert.ok(cfg.agent["bulk-reader"], "bulk-reader must exist");
+    assert.ok(cfg.agent["code-writer"], "code-writer must exist");
   });
 });
