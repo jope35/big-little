@@ -1,4 +1,4 @@
-# big-little
+<h1 style="font-family: Baskerville, serif; font-size: 3em;">Big-Little</h1>
 
 [![npm version](https://img.shields.io/npm/v/big-little.svg)](https://www.npmjs.com/package/big-little)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -7,13 +7,20 @@
 
 OpenCode plugin. Big model keeps orchestration. Little worker subagents do bulk reads and boilerplate.
 
+<p align="center">
+  <img src="artifacts/img/still-video-square-90.png" alt="big-little still" width="50%">
+</p>
+
 ## Contents
 
+- [Contents](#contents)
 - [Install](#install)
 - [Verify your install](#verify-your-install)
 - [Configuration](#configuration)
 - [Examples](#examples)
 - [How it works](#how-it-works)
+  - [bulk-reader flow](#bulk-reader-flow)
+  - [code-writer flow](#code-writer-flow)
 - [What it does](#what-it-does)
 - [Limits](#limits)
 
@@ -54,7 +61,6 @@ With options (tuple form):
 | `bulkReaderModel` | `BIGLITTLE_BULK_READER_MODEL` | unset (inherit caller model) | Example `opencode/nemotron-3.5-lightning-free`. |
 | `codeWriterModel` | `BIGLITTLE_CODE_WRITER_MODEL` | unset (inherit caller model) | Same semantics. |
 
-
 Model picks below are [OpenCode Zen](https://opencode.ai/docs/zen/#pricing) free-tier models (`opencode/nemotron-3.5-lightning-free` reads, `opencode/mimo-v2.5-free` writes), so most users already have them. Free-tier availability is limited-time — run `/models` in the TUI to confirm before pinning.
 
 ## Examples
@@ -67,7 +73,7 @@ Model picks below are [OpenCode Zen](https://opencode.ai/docs/zen/#pricing) free
 }
 ```
 
-2. Custom threshold only:
+1. Custom threshold only:
 
 ```json
 {
@@ -75,7 +81,7 @@ Model picks below are [OpenCode Zen](https://opencode.ai/docs/zen/#pricing) free
 }
 ```
 
-3. Cheap bulk-reader only (the main cost saver; threshold stays 350):
+1. Cheap bulk-reader only (the main cost saver; threshold stays 350):
 
 ```json
 {
@@ -83,7 +89,7 @@ Model picks below are [OpenCode Zen](https://opencode.ai/docs/zen/#pricing) free
 }
 ```
 
-4. Code-writer model only:
+1. Code-writer model only:
 
 ```json
 {
@@ -91,7 +97,7 @@ Model picks below are [OpenCode Zen](https://opencode.ai/docs/zen/#pricing) free
 }
 ```
 
-5. Both workers pinned, default threshold:
+1. Both workers pinned, default threshold:
 
 ```json
 {
@@ -107,7 +113,7 @@ Model picks below are [OpenCode Zen](https://opencode.ai/docs/zen/#pricing) free
 }
 ```
 
-6. Everything set:
+1. Everything set:
 
 ```json
 {
