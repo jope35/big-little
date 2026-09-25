@@ -1,5 +1,6 @@
-import type { Plugin, PluginModule } from "@opencode-ai/plugin";
+import { Plugin, Model } from "@opencode/plugin";
 import { readFileSync } from "node:fs";
+import { isAbsolute, resolve as resolvePath } from "node:path";
 
 export interface BigLittleOptions {
   minLines?: unknown;
@@ -10,17 +11,9 @@ export interface BigLittleOptions {
 export const DEFAULT_MIN_LINES = 350;
 
 function parsePositiveInt(raw: unknown): number | null {
-  if (typeof raw === "number") {
-    if (Number.isFinite(raw) && raw > 0 && Number.isInteger(raw)) return raw;
-    if (Number.isFinite(raw) && raw > 0) return Math.floor(raw);
-    return null;
-  }
-  if (typeof raw === "string") {
-    const n = Number.parseInt(raw.trim(), 10);
-    if (Number.isFinite(n) && n > 0) return n;
-    return null;
-  }
-  return null;
+  const n =
+    typeof raw === "number" ? raw : typeof raw === "string" ? Number.parseInt(raw.trim(), 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
 }
 
 export function resolveThreshold(options: BigLittleOptions = {}): number {
@@ -70,7 +63,7 @@ Core Tool Strategy:
 - Glob: Locate files by pattern or extension.
 - Grep: Search code text and regex patterns across targeted directories.
 - Read: Inspect specific file contents once narrowed down.
-- Bash: Use exclusively for read-only commands (e.g. 'ls', directory listing, 'git log').
+- Shell: Use exclusively for read-only commands (e.g. 'ls', directory listing, 'git log').
 
 Guidelines:
 - Follow a top-down workflow: filter paths with Glob/Grep before reading full files.
@@ -112,70 +105,77 @@ export function resolveModels(options: BigLittleOptions = {}): {
     options.bulkReaderModel ?? process.env.BIGLITTLE_BULK_READER_MODEL ?? undefined;
   const codeWriterModel =
     options.codeWriterModel ?? process.env.BIGLITTLE_CODE_WRITER_MODEL ?? undefined;
-  const out: { bulkReaderModel?: string; codeWriterModel?: string } = {};
-  if (bulkReaderModel) out.bulkReaderModel = bulkReaderModel;
-  if (codeWriterModel) out.codeWriterModel = codeWriterModel;
-  return out;
+  return { ...(bulkReaderModel && { bulkReaderModel }), ...(codeWriterModel && { codeWriterModel }) };
 }
 
-export function buildAgentConfig(options: BigLittleOptions = {}): Record<string, unknown> {
-  const { bulkReaderModel, codeWriterModel } = resolveModels(options);
+export interface V2Permission {
+  action: string;
+  resource: string;
+  effect: "allow" | "deny" | "ask";
+}
+
+export interface V2AgentInfo {
+  description: string;
+  mode: "subagent";
+  system: string;
+  permissions: V2Permission[];
+  model?: { providerID: string; id: string; variant?: string };
+}
+
+function parseModelRef(ref: string): { providerID: string; id: string; variant?: string } {
+  return Model.Ref.parse(ref) as unknown as { providerID: string; id: string; variant?: string };
+}
+
+export const BULK_READER_PERMISSIONS: V2Permission[] = [
+  { action: "*", resource: "*", effect: "deny" },
+  { action: "read", resource: "*", effect: "allow" },
+  { action: "glob", resource: "*", effect: "allow" },
+  { action: "grep", resource: "*", effect: "allow" },
+  { action: "webfetch", resource: "*", effect: "allow" },
+  { action: "websearch", resource: "*", effect: "allow" },
+  { action: "edit", resource: "*", effect: "deny" },
+  { action: "subagent", resource: "*", effect: "deny" },
+  { action: "shell", resource: "*", effect: "deny" },
+  { action: "shell", resource: "ls *", effect: "allow" },
+  { action: "shell", resource: "git log *", effect: "allow" },
+  { action: "shell", resource: "git status *", effect: "allow" },
+  { action: "shell", resource: "git diff *", effect: "allow" },
+  { action: "shell", resource: "grep *", effect: "allow" },
+  { action: "shell", resource: "rg *", effect: "allow" },
+  { action: "shell", resource: "wc *", effect: "allow" },
+];
+
+export const CODE_WRITER_PERMISSIONS: V2Permission[] = [
+  { action: "*", resource: "*", effect: "deny" },
+  { action: "read", resource: "*", effect: "allow" },
+  { action: "edit", resource: "*", effect: "allow" },
+  { action: "glob", resource: "*", effect: "allow" },
+  { action: "grep", resource: "*", effect: "allow" },
+  { action: "shell", resource: "*", effect: "deny" },
+  { action: "webfetch", resource: "*", effect: "deny" },
+  { action: "websearch", resource: "*", effect: "deny" },
+  { action: "subagent", resource: "*", effect: "deny" },
+];
+
+export function buildBulkReaderInfo(options: BigLittleOptions = {}): V2AgentInfo {
+  const { bulkReaderModel } = resolveModels(options);
   return {
-    "bulk-reader": {
-      description: BULK_READER_DESCRIPTION,
-      mode: "subagent",
-      temperature: 0.2,
-      ...(bulkReaderModel ? { model: bulkReaderModel } : {}),
-      permission: {
-        "*": "deny",
-        grep: "allow",
-        glob: "allow",
-        list: "allow",
-        read: "allow",
-        webfetch: "allow",
-        websearch: "allow",
-        edit: "deny",
-        task: "deny",
-        bash: {
-          "*": "deny",
-          "ls*": "allow",
-          "git log*": "allow",
-          "git status*": "allow",
-          "git diff*": "allow",
-          "grep*": "allow",
-          "rg*": "allow",
-          "wc*": "allow",
-        },
-      },
-      prompt: BULK_READER_PROMPT,
-    },
-    "code-writer": {
-      description: CODE_WRITER_DESCRIPTION,
-      mode: "subagent",
-      temperature: 0.2,
-      ...(codeWriterModel ? { model: codeWriterModel } : {}),
-      permission: {
-        "*": "deny",
-        read: "allow",
-        edit: "allow",
-        glob: "allow",
-        grep: "allow",
-        list: "allow",
-        bash: "deny",
-        webfetch: "deny",
-        websearch: "deny",
-        task: "deny",
-      },
-      prompt: CODE_WRITER_PROMPT,
-    },
+    description: BULK_READER_DESCRIPTION,
+    mode: "subagent",
+    system: BULK_READER_PROMPT,
+    ...(bulkReaderModel ? { model: parseModelRef(bulkReaderModel) } : {}),
+    permissions: BULK_READER_PERMISSIONS.map((p) => ({ ...p })),
   };
 }
 
-export async function applyAgentConfig(cfg: any, options: BigLittleOptions = {}): Promise<void> {
-  const agents = buildAgentConfig(options);
-  cfg.agent = {
-    ...(cfg.agent ?? {}),
-    ...agents,
+export function buildCodeWriterInfo(options: BigLittleOptions = {}): V2AgentInfo {
+  const { codeWriterModel } = resolveModels(options);
+  return {
+    description: CODE_WRITER_DESCRIPTION,
+    mode: "subagent",
+    system: CODE_WRITER_PROMPT,
+    ...(codeWriterModel ? { model: parseModelRef(codeWriterModel) } : {}),
+    permissions: CODE_WRITER_PERMISSIONS.map((p) => ({ ...p })),
   };
 }
 
@@ -196,20 +196,27 @@ export function buildBashBlockMessage(lines: number, minLines: number): string {
 }
 
 export function checkReadRequest(
-  args: { filePath?: string; offset?: number | null; limit?: number | null },
-  minLines: number
+  args: { filePath?: string; path?: string; offset?: number | null; limit?: number | null },
+  minLines: number,
+  cwd?: string
 ): string | null {
   if (args.offset != null || args.limit != null) return null;
-  if (!args.filePath) return null;
-  const lines = countLines(args.filePath);
+  // V2 read tool sends `path`; accept legacy `filePath` defensively.
+  const raw = args.path ?? args.filePath;
+  if (!raw) return null;
+  const lines = countLines(resolveInDir(raw, cwd));
   if (lines === null || lines <= minLines) return null;
   return buildReadBlockMessage(lines, minLines);
 }
 
-export function checkBashRequest(command: unknown, minLines: number): string | null {
+export function checkBashRequest(
+  command: unknown,
+  minLines: number,
+  cwd?: string
+): string | null {
   if (typeof command !== "string") return null;
   for (const target of extractBashTargets(command)) {
-    const lines = countLines(target);
+    const lines = countLines(resolveInDir(target, cwd));
     if (lines !== null && lines > minLines) {
       return buildBashBlockMessage(lines, minLines);
     }
@@ -217,50 +224,86 @@ export function checkBashRequest(command: unknown, minLines: number): string | n
   return null;
 }
 
-export function handleToolBefore(
-  input: { tool?: unknown },
-  output: { args?: Record<string, unknown> },
-  minLines: number
+// Resolve tool paths against the session dir; without cwd, raw passthrough fails open in countLines.
+export function resolveInDir(p: string, cwd?: string): string {
+  if (!cwd || isAbsolute(p)) return p;
+  return resolvePath(cwd, p);
+}
+
+export function handleV2ToolBefore(
+  tool: unknown,
+  input: Record<string, any> | null | undefined,
+  minLines: number,
+  cwd?: string
 ): void {
-  const tool = String(input?.tool ?? "").toLowerCase();
-  const args = (output?.args ?? {}) as Record<string, any>;
-  if (tool === "read") {
+  const name = String(tool ?? "").toLowerCase();
+  const args = (input ?? {}) as Record<string, any>;
+  if (name === "read") {
     const msg = checkReadRequest(
-      { filePath: args.filePath, offset: args.offset, limit: args.limit },
-      minLines
+      { path: args.path, filePath: args.filePath, offset: args.offset, limit: args.limit },
+      minLines,
+      cwd
     );
     if (msg !== null) throw new Error(msg);
     return;
   }
-  if (tool === "bash") {
-    const msg = checkBashRequest(args.command, minLines);
+  // V2 contract is `shell`. Match `bash` defensively (one line) for old callers.
+  if (name === "shell" || name === "bash") {
+    const msg = checkBashRequest(args.command, minLines, cwd);
     if (msg !== null) throw new Error(msg);
     return;
   }
 }
 
-export const BigLittlePlugin: Plugin = async (_input: any, options?: any) => {
-  const opts: BigLittleOptions =
-    options && typeof options === "object" ? (options as BigLittleOptions) : {};
-  const minLines = resolveThreshold(opts);
-
-  return {
-    config: async (cfg: any) => {
-      await applyAgentConfig(cfg, opts);
-    },
-    "tool.execute.before": async (input: any, output: any) => {
+export default Plugin.define({
+  id: "big-little",
+  async setup(ctx) {
+    const opts = (ctx.options ?? {}) as BigLittleOptions;
+    const minLines = resolveThreshold(opts);
+    const bulkInfo = buildBulkReaderInfo(opts);
+    const codeInfo = buildCodeWriterInfo(opts);
+    await ctx.agent.transform((editor) => {
+      editor.update("bulk-reader", (agent) => {
+        Object.assign(agent, bulkInfo);
+      });
+      editor.update("code-writer", (agent) => {
+        Object.assign(agent, codeInfo);
+      });
+    });
+    // Session directory cache: models usually send relative paths, which only
+    // resolve correctly against the calling session's directory (not the
+    // server process cwd). One cached lookup per session; fail open to raw
+    // paths when the lookup fails.
+    const dirCache = new Map<string, string>();
+    const sessionDir = async (sessionID: unknown): Promise<string | undefined> => {
+      if (typeof sessionID !== "string" || !sessionID) return undefined;
+      const hit = dirCache.get(sessionID);
+      if (hit) return hit;
       try {
-        handleToolBefore(
-          { tool: input?.tool },
-          { args: (output?.args ?? {}) as Record<string, unknown> },
-          minLines
-        );
+        const info = (await ctx.session.get({ sessionID } as any)) as any;
+        const dir = info?.location?.directory ?? info?.directory;
+        if (typeof dir === "string" && dir) {
+          dirCache.set(sessionID, dir);
+          return dir;
+        }
+      } catch {
+        // Fail open: fall through to raw-path behavior below.
+      }
+      return undefined;
+    };
+    await ctx.tool.hook("execute.before", async (event) => {
+      try {
+        const e = event as unknown as {
+          tool?: unknown;
+          input?: Record<string, any>;
+          sessionID?: unknown;
+        };
+        const cwd = await sessionDir(e.sessionID);
+        handleV2ToolBefore(e.tool, e.input, minLines, cwd);
       } catch (err) {
         // Fail open on unexpected errors; only deliberate block throws leave.
         if (err instanceof Error && err.message.startsWith("File is ")) throw err;
       }
-    },
-  };
-};
-
-export default { id: "big-little", server: BigLittlePlugin } satisfies PluginModule;
+    });
+  },
+});
