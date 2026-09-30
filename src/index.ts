@@ -270,10 +270,8 @@ export default Plugin.define({
         Object.assign(agent, codeInfo);
       });
     });
-    // Session directory cache: models usually send relative paths, which only
-    // resolve correctly against the calling session's directory (not the
-    // server process cwd). One cached lookup per session; fail open to raw
-    // paths when the lookup fails.
+    // Models send relative paths; resolve them against the session dir
+    // (cached lookup, fail open to raw paths when it fails).
     const dirCache = new Map<string, string>();
     const sessionDir = async (sessionID: unknown): Promise<string | undefined> => {
       if (typeof sessionID !== "string" || !sessionID) return undefined;
