@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/big-little.svg)](https://www.npmjs.com/package/big-little)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-green.svg)](https://nodejs.org)
-[![OpenCode](https://img.shields.io/badge/OpenCode-1.18%2B-blue.svg)](https://opencode.ai)
+[![OpenCode](https://img.shields.io/badge/OpenCode-2.x-blue.svg)](https://opencode.ai)
 
 OpenCode plugin. Big model keeps orchestration. Little worker subagents do bulk reads and boilerplate.
 
@@ -24,33 +24,48 @@ OpenCode plugin. Big model keeps orchestration. Little worker subagents do bulk 
 - [What it does](#what-it-does)
 - [Limits](#limits)
 
-Requires OpenCode 1.x (1.18 or later). OpenCode 2 beta is not supported.
+Requires OpenCode 2.x (tested on 2.0.16).
 
 ## Install
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["big-little"]
+  "plugins": ["big-little"]
 }
 ```
 
 Restart OpenCode after install. Restart picks up config changes.
 
+Local plugin directories need a top-level `index.js`/`index.ts` entrypoint for
+OpenCode discovery; this package ships one that re-exports `dist/index.js`, so
+both `"plugins": ["/absolute/path/big-little"]` and the npm package work.
+
 ## Verify your install
 
-Run `opencode debug config`. Check that `bulk-reader` and `code-writer` appear under `agent`. Run `opencode debug agent bulk-reader` to see the expanded permission rules. Both commands use no model.
+Project plugins load when their location boots (for example on session start),
+not for `debug` commands. With a session open in a project that enables this
+plugin, run:
+
+```bash
+opencode api agent.list --param 'location[directory]=/path/to/project'
+```
+
+Check that `bulk-reader` and `code-writer` appear with `mode: "subagent"` and a
+`permissions` array (no `temperature`, no `prompt`, no `bash`/`task` actions).
+This uses no model. (`opencode debug config` only lists config sources, and
+`debug agents` does not reflect plugin-registered agents.)
 
 ## Configuration
 
 Every option is optional. Env vars apply only when the matching option is absent.
 
-With options (tuple form):
+With options (object form):
 
 ```json
 {
-  "plugin": [
-    ["big-little", { "minLines": 500 }]
+  "plugins": [
+    { "package": "big-little", "options": { "minLines": 500 } }
   ]
 }
 ```
@@ -69,7 +84,7 @@ Model picks below are [OpenCode Zen](https://opencode.ai/docs/zen/#pricing) free
 
 ```json
 {
-  "plugin": ["big-little"]
+  "plugins": ["big-little"]
 }
 ```
 
@@ -77,7 +92,7 @@ Model picks below are [OpenCode Zen](https://opencode.ai/docs/zen/#pricing) free
 
 ```json
 {
-  "plugin": [["big-little", { "minLines": 500 }]]
+  "plugins": [{ "package": "big-little", "options": { "minLines": 500 } }]
 }
 ```
 
@@ -85,7 +100,7 @@ Model picks below are [OpenCode Zen](https://opencode.ai/docs/zen/#pricing) free
 
 ```json
 {
-  "plugin": [["big-little", { "bulkReaderModel": "opencode/nemotron-3.5-lightning-free" }]]
+  "plugins": [{ "package": "big-little", "options": { "bulkReaderModel": "opencode/nemotron-3.5-lightning-free" } }]
 }
 ```
 
@@ -93,7 +108,7 @@ Model picks below are [OpenCode Zen](https://opencode.ai/docs/zen/#pricing) free
 
 ```json
 {
-  "plugin": [["big-little", { "codeWriterModel": "opencode/mimo-v2.5-free" }]]
+  "plugins": [{ "package": "big-little", "options": { "codeWriterModel": "opencode/mimo-v2.5-free" } }]
 }
 ```
 
@@ -101,14 +116,14 @@ Model picks below are [OpenCode Zen](https://opencode.ai/docs/zen/#pricing) free
 
 ```json
 {
-  "plugin": [
-    [
-      "big-little",
-      {
+  "plugins": [
+    {
+      "package": "big-little",
+      "options": {
         "bulkReaderModel": "opencode/nemotron-3.5-lightning-free",
         "codeWriterModel": "opencode/mimo-v2.5-free"
       }
-    ]
+    }
   ]
 }
 ```
@@ -117,15 +132,15 @@ Model picks below are [OpenCode Zen](https://opencode.ai/docs/zen/#pricing) free
 
 ```json
 {
-  "plugin": [
-    [
-      "big-little",
-      {
+  "plugins": [
+    {
+      "package": "big-little",
+      "options": {
         "minLines": 500,
         "bulkReaderModel": "opencode/nemotron-3.5-lightning-free",
         "codeWriterModel": "opencode/mimo-v2.5-free"
       }
-    ]
+    }
   ]
 }
 ```
@@ -145,7 +160,7 @@ export BIGLITTLE_CODE_WRITER_MODEL=opencode/mimo-v2.5-free
 ```mermaid
 flowchart LR
     primary["Primary agent"]
-    hook["tool.execute.before hook"]
+    hook["execute.before hook"]
     br["bulk-reader subagent"]
     code[("Codebase")]
 
@@ -170,14 +185,14 @@ flowchart LR
     primary2 -- "spec + reference file + target path" --> cw
     cw -- "read reference, match patterns" --> code2
     cw -- "write finished file via edit" --> code2
-    primary2 -- "run tests + lint (writer has no bash)" --> code2
+    primary2 -- "run tests + lint (writer has no shell)" --> code2
 ```
 
 ## What it does
 
-- Registers `bulk-reader` (read-only explorer) and `code-writer` (boilerplate writer via `edit`).
-- Blocks full-file `read` over threshold. Message names `bulk-reader` and offers `offset/limit` retry.
-- Blocks `cat|head|tail|less|more` over threshold. Piped commands pass.
+- Registers `bulk-reader` (read-only explorer) and `code-writer` (boilerplate writer via `edit`) through `ctx.agent.transform` (upsert via `editor.update`).
+- Blocks full-file `read` over threshold via `ctx.tool.hook("execute.before")`. Message names `bulk-reader` and offers `offset/limit` retry. The guard reads the V2 `path` key and resolves relative paths against the calling session's directory (cached lookup, fail open).
+- Blocks `cat|head|tail|less|more` over threshold on the `shell` tool. Piped commands pass.
 - Targeted reads (`offset` or `limit` set) always pass.
 
 ## Limits
@@ -185,4 +200,11 @@ flowchart LR
 - Set a cheap worker model or you get discipline without cost saving.
 - Re-read target sections with `offset/limit` before edit. Worker line numbers can drift.
 - Keep debugging and architecture on the main model.
-- `code-writer` cannot run bash or network. Caller runs tests and lint.
+- `code-writer` cannot run shell or network. Caller runs tests and lint.
+- Relative paths are resolved against the calling session's directory; if that lookup fails the guard fails open to raw-path behavior.
+
+## Benchmark selection
+- https://hub.harborframework.com/tasks/terminal-bench/data-anonymization
+- https://hub.harborframework.com/tasks/terminal-bench/multi-source-data-merger
+- https://hub.harborframework.com/tasks/swe-bench/scikit-learn__scikit-learn-14053
+- https://hub.harborframework.com/tasks/swe-bench/scikit-learn__scikit-learn-14710

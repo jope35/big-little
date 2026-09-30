@@ -43,7 +43,7 @@ for run in a b c; do
   if [ "$run" = "a" ]; then
     printf '{}\n' > "$dir/opencode.json"
   else
-    printf '{ "plugin": [["%s", { "minLines": %s }]] }\n' "$ROOT" "$MIN_LINES" > "$dir/opencode.json"
+    printf '{ "plugins": [{ "package": "%s", "options": { "minLines": %s } }] }\n' "$ROOT" "$MIN_LINES" > "$dir/opencode.json"
   fi
   echo "run dir ready: $dir"
 done

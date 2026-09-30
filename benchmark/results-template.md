@@ -9,7 +9,7 @@ Copy this file to `results.md` and fill in each field.
 - `bulkReaderModel` for runs B and C:
 - `codeWriterModel` for runs B and C:
 - OpenCode version from `opencode --version`:
-- `@opencode-ai/plugin` version:
+- `@opencode/plugin` version:
 
 ## Token counts
 

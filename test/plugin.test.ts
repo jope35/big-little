@@ -8,12 +8,14 @@ import {
   countLines,
   DEFAULT_MIN_LINES,
   extractBashTargets,
-  buildAgentConfig,
-  applyAgentConfig,
+  buildBulkReaderInfo,
+  buildCodeWriterInfo,
+  BULK_READER_PERMISSIONS,
+  CODE_WRITER_PERMISSIONS,
   checkReadRequest,
   checkBashRequest,
-  handleToolBefore,
-  BigLittlePlugin,
+  handleV2ToolBefore,
+  resolveInDir,
 } from "../src/index.ts";
 import BigLittleModuleDefault from "../src/index.ts";
 
@@ -107,70 +109,100 @@ describe("extractBashTargets", () => {
   });
 });
 
-describe("agent permissions", () => {
-  it("bulk-reader is deny-all with read tools and narrow bash map", () => {
-    const agents: any = buildAgentConfig({});
-    const br = agents["bulk-reader"];
-    assert.equal(br.mode, "subagent");
-    assert.equal(br.temperature, 0.2);
-    assert.equal(br.permission["*"], "deny");
-    assert.equal(br.permission.read, "allow");
-    assert.equal(br.permission.grep, "allow");
-    assert.equal(br.permission.glob, "allow");
-    assert.equal(br.permission.list, "allow");
-    assert.equal(br.permission.webfetch, "allow");
-    assert.equal(br.permission.websearch, "allow");
-    assert.equal(br.permission.edit, "deny");
-    assert.equal(br.permission.task, "deny");
-    assert.equal(br.permission.bash["*"], "deny");
-    assert.equal(br.permission.bash["ls*"], "allow");
-    assert.equal(br.permission.bash["git log*"], "allow");
-    assert.equal(br.permission.bash["git status*"], "allow");
-    assert.equal(br.permission.bash["git diff*"], "allow");
-    assert.equal(br.permission.bash["grep*"], "allow");
-    assert.equal(br.permission.bash["rg*"], "allow");
-    assert.equal(br.permission.bash["wc*"], "allow");
-    assert.ok(!("model" in br), "model key must be absent when unset");
-    assert.ok(br.description.includes("minLines"), "description must name the threshold option");
-    assert.ok(br.description.includes("350"), "description must state the default");
-  });
-  it("code-writer can edit but has no bash or network", () => {
-    const agents: any = buildAgentConfig({});
-    const cw = agents["code-writer"];
-    assert.equal(cw.mode, "subagent");
-    assert.equal(cw.temperature, 0.2);
-    assert.equal(cw.permission["*"], "deny");
-    assert.equal(cw.permission.read, "allow");
-    assert.equal(cw.permission.edit, "allow");
-    assert.equal(cw.permission.glob, "allow");
-    assert.equal(cw.permission.grep, "allow");
-    assert.equal(cw.permission.list, "allow");
-    assert.equal(cw.permission.bash, "deny");
-    assert.equal(cw.permission.webfetch, "deny");
-    assert.equal(cw.permission.websearch, "deny");
-    assert.equal(cw.permission.task, "deny");
-  });
+function perm(info: any, action: string, resource: string): string | undefined {
+  return info.permissions?.find((p: any) => p.action === action && p.resource === resource)
+    ?.effect;
+}
 
-  it("sets model only when provided via option or env", () => {
+describe("v2 agent info", () => {
+  it("bulk-reader is deny-first with read tools and narrow shell allowlist", () => {
     delete process.env.BIGLITTLE_BULK_READER_MODEL;
     delete process.env.BIGLITTLE_CODE_WRITER_MODEL;
-    let agents: any = buildAgentConfig({
-      bulkReaderModel: "anthropic/claude-haiku-4-20250514",
-    });
-    assert.equal(agents["bulk-reader"].model, "anthropic/claude-haiku-4-20250514");
-    assert.ok(!("model" in agents["code-writer"]));
-    process.env.BIGLITTLE_CODE_WRITER_MODEL = "anthropic/claude-haiku-4-20250514";
-    agents = buildAgentConfig({});
-    assert.equal(agents["code-writer"].model, "anthropic/claude-haiku-4-20250514");
-    delete process.env.BIGLITTLE_CODE_WRITER_MODEL;
+    const br: any = buildBulkReaderInfo({});
+    assert.equal(br.mode, "subagent");
+    assert.ok(!("temperature" in br), "temperature must be dropped in V2");
+    assert.ok(!("prompt" in br), "legacy prompt key must not exist (use system)");
+    assert.ok(typeof br.system === "string" && br.system.length > 0);
+    assert.ok(br.system.includes("read-only"), "system must contain read-only guidance");
+    assert.ok(br.system.includes("Shell"), "system must say Shell, not Bash (V2 tool name)");
+    assert.ok(!br.system.includes("Bash:"), "system must not reference the old Bash tool label");
+    assert.ok(br.description.includes("minLines"));
+    assert.ok(br.description.includes("350"));
+    // Exact permission array from the plan.
+    assert.deepEqual(br.permissions, BULK_READER_PERMISSIONS);
+    assert.equal(perm(br, "*", "*"), "deny");
+    assert.equal(perm(br, "read", "*"), "allow");
+    assert.equal(perm(br, "glob", "*"), "allow");
+    assert.equal(perm(br, "grep", "*"), "allow");
+    assert.equal(perm(br, "webfetch", "*"), "allow");
+    assert.equal(perm(br, "websearch", "*"), "allow");
+    assert.equal(perm(br, "edit", "*"), "deny");
+    assert.equal(perm(br, "subagent", "*"), "deny");
+    assert.equal(perm(br, "shell", "*"), "deny");
+    assert.equal(perm(br, "shell", "ls *"), "allow");
+    assert.equal(perm(br, "shell", "git log *"), "allow");
+    assert.equal(perm(br, "shell", "git status *"), "allow");
+    assert.equal(perm(br, "shell", "git diff *"), "allow");
+    assert.equal(perm(br, "shell", "grep *"), "allow");
+    assert.equal(perm(br, "shell", "rg *"), "allow");
+    assert.equal(perm(br, "shell", "wc *"), "allow");
+    // No removed actions anywhere in the permission arrays.
+    const actions = new Set(br.permissions.map((p: any) => p.action));
+    assert.ok(!actions.has("bash"), "old bash action must not appear (V2 is shell)");
+    assert.ok(!actions.has("task"), "old task action must not appear (V2 is subagent)");
+    assert.ok(!actions.has("list"), "removed V2 list tool must not appear");
+    assert.ok(!("model" in br), "model key must be absent when unset");
   });
 
-  it("config hook merges and never removes user agents", async () => {
-    const cfg: any = { agent: { "my-agent": { mode: "primary" } } };
-    await applyAgentConfig(cfg, {});
-    assert.ok(cfg.agent["my-agent"], "user agent must survive");
-    assert.ok(cfg.agent["bulk-reader"], "bulk-reader must exist");
-    assert.ok(cfg.agent["code-writer"], "code-writer must exist");
+  it("code-writer can edit but has no shell or network", () => {
+    delete process.env.BIGLITTLE_BULK_READER_MODEL;
+    delete process.env.BIGLITTLE_CODE_WRITER_MODEL;
+    const cw: any = buildCodeWriterInfo({});
+    assert.equal(cw.mode, "subagent");
+    assert.ok(!("temperature" in cw));
+    assert.ok(!("prompt" in cw));
+    assert.ok(typeof cw.system === "string" && cw.system.length > 0);
+    assert.deepEqual(cw.permissions, CODE_WRITER_PERMISSIONS);
+    assert.equal(perm(cw, "*", "*"), "deny");
+    assert.equal(perm(cw, "read", "*"), "allow");
+    assert.equal(perm(cw, "edit", "*"), "allow");
+    assert.equal(perm(cw, "glob", "*"), "allow");
+    assert.equal(perm(cw, "grep", "*"), "allow");
+    assert.equal(perm(cw, "shell", "*"), "deny");
+    assert.equal(perm(cw, "webfetch", "*"), "deny");
+    assert.equal(perm(cw, "websearch", "*"), "deny");
+    assert.equal(perm(cw, "subagent", "*"), "deny");
+    const actions = new Set(cw.permissions.map((p: any) => p.action));
+    assert.ok(!actions.has("bash"), "old bash action must not appear (V2 is shell)");
+    assert.ok(!actions.has("task"), "old task action must not appear (V2 is subagent)");
+    assert.ok(!actions.has("list"), "removed V2 list tool must not appear");
+    assert.ok(!("model" in cw), "model key must be absent when unset");
+  });
+
+  it("sets model only when provided via option or env (parsed to provider/model ref)", () => {
+    delete process.env.BIGLITTLE_BULK_READER_MODEL;
+    delete process.env.BIGLITTLE_CODE_WRITER_MODEL;
+    let br: any = buildBulkReaderInfo({
+      bulkReaderModel: "anthropic/claude-haiku-4-20250514",
+    });
+    assert.deepEqual(br.model, {
+      providerID: "anthropic",
+      id: "claude-haiku-4-20250514",
+    });
+    let cw: any = buildCodeWriterInfo({});
+    assert.ok(!("model" in cw));
+    process.env.BIGLITTLE_CODE_WRITER_MODEL = "anthropic/claude-haiku-4-20250514";
+    cw = buildCodeWriterInfo({});
+    assert.deepEqual(cw.model, {
+      providerID: "anthropic",
+      id: "claude-haiku-4-20250514",
+    });
+    delete process.env.BIGLITTLE_CODE_WRITER_MODEL;
+    // Variant suffix passes through the parser.
+    br = buildBulkReaderInfo({ bulkReaderModel: "anthropic/claude-sonnet-4-5#high" });
+    assert.equal(br.model.providerID, "anthropic");
+    assert.equal(br.model.id, "claude-sonnet-4-5");
+    assert.equal(br.model.variant, "high");
   });
 });
 
@@ -181,8 +213,8 @@ describe("routing", () => {
     const big = join(dir, "big.txt");
     writeFileSync(small, "a\nb");
     writeFileSync(big, Array(400).fill("x").join("\n"));
-    assert.equal(checkReadRequest({ filePath: small }, 350), null);
-    const msg = checkReadRequest({ filePath: big }, 350);
+    assert.equal(checkReadRequest({ path: small }, 350), null);
+    const msg = checkReadRequest({ path: big }, 350);
     assert.ok(msg);
     assert.ok(msg!.includes("bulk-reader"));
     assert.ok(msg!.includes("offset/limit"));
@@ -190,16 +222,44 @@ describe("routing", () => {
     rmSync(dir, { recursive: true });
   });
 
+  it("accepts legacy filePath defensively", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bl-compat-"));
+    const big = join(dir, "big.txt");
+    writeFileSync(big, Array(400).fill("x").join("\n"));
+    assert.ok(checkReadRequest({ filePath: big }, 350));
+    rmSync(dir, { recursive: true });
+  });
+
   it("allows targeted read even on big file", () => {
-    assert.equal(checkReadRequest({ filePath: "big.txt", offset: 1, limit: 10 }, 350), null);
-    assert.equal(checkReadRequest({ filePath: "big.txt", offset: 1 }, 350), null);
-    assert.equal(checkReadRequest({ filePath: "big.txt", limit: 10 }, 350), null);
+    assert.equal(checkReadRequest({ path: "big.txt", offset: 1, limit: 10 }, 350), null);
+    assert.equal(checkReadRequest({ path: "big.txt", offset: 1 }, 350), null);
+    assert.equal(checkReadRequest({ path: "big.txt", limit: 10 }, 350), null);
   });
 
   it("allows missing path", () => {
     assert.equal(checkReadRequest({}, 350), null);
-    assert.equal(checkReadRequest({ filePath: "" }, 350), null);
-    assert.equal(checkReadRequest({ filePath: "/no/such.txt" }, 350), null);
+    assert.equal(checkReadRequest({ path: "" }, 350), null);
+    assert.equal(checkReadRequest({ path: "/no/such.txt" }, 350), null);
+  });
+
+  it("resolves relative paths against cwd", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bl-cwd-"));
+    writeFileSync(join(dir, "big.txt"), Array(400).fill("x").join("\n"));
+    writeFileSync(join(dir, "small.txt"), "hi");
+    // Relative path without cwd fails open (server process cwd is unrelated).
+    assert.equal(checkReadRequest({ path: "bl-no-such-file-xyz.txt" }, 350), null);
+    // With the session directory, the same relative path blocks.
+    assert.ok(checkReadRequest({ path: "big.txt" }, 350, dir));
+    assert.equal(checkReadRequest({ path: "small.txt" }, 350, dir), null);
+    assert.ok(checkBashRequest("cat big.txt", 350, dir));
+    assert.equal(checkBashRequest("cat small.txt", 350, dir), null);
+    rmSync(dir, { recursive: true });
+  });
+
+  it("resolveInDir passes absolute through, joins relative under cwd", () => {
+    assert.equal(resolveInDir("/abs/big.txt", "/sess"), "/abs/big.txt");
+    assert.equal(resolveInDir("big.txt", "/sess"), join("/sess", "big.txt"));
+    assert.equal(resolveInDir("big.txt"), "big.txt");
   });
 
   it("blocks big cat and allows piped, small, non-string", () => {
@@ -219,74 +279,197 @@ describe("routing", () => {
     rmSync(dir, { recursive: true });
   });
 
-  it("handleToolBefore throws only on block and ignores other tools", () => {
+  it("handleV2ToolBefore throws only on block and ignores other tools", () => {
     const dir = mkdtempSync(join(tmpdir(), "bl-hook-"));
     const big = join(dir, "big.txt");
     writeFileSync(big, Array(400).fill("z").join("\n"));
-    assert.throws(() => handleToolBefore({ tool: "READ" }, { args: { filePath: big } }, 350));
-    assert.doesNotThrow(() =>
-      handleToolBefore({ tool: "read" }, { args: { filePath: big, limit: 5 } }, 350)
-    );
-    assert.doesNotThrow(() =>
-      handleToolBefore({ tool: "edit" }, { args: { filePath: big } }, 350)
-    );
-    assert.doesNotThrow(() => handleToolBefore({}, {}, 350));
+    assert.throws(() => handleV2ToolBefore("READ", { path: big }, 350));
+    assert.doesNotThrow(() => handleV2ToolBefore("read", { path: big, limit: 5 }, 350));
+    assert.doesNotThrow(() => handleV2ToolBefore("edit", { path: big }, 350));
+    assert.doesNotThrow(() => handleV2ToolBefore(undefined, {}, 350));
+    // V2 contract key is `path`; legacy `filePath` still blocks (defensive).
+    assert.throws(() => handleV2ToolBefore("read", { filePath: big }, 350));
+    // Relative path resolves against the session directory when provided.
+    assert.throws(() => handleV2ToolBefore("read", { path: "big.txt" }, 350, dir));
     rmSync(dir, { recursive: true });
   });
 });
 
-describe("BigLittlePlugin wiring", () => {
-  it("default-exports a PluginModule wrapping BigLittlePlugin", () => {
-    const mod: any = BigLittleModuleDefault;
-    assert.equal(mod.id, "big-little");
-    assert.strictEqual(mod.server, BigLittlePlugin);
-  });
-
-  it("exposes config and tool.execute.before hooks", async () => {
-    const plugin: any = await BigLittlePlugin({} as any);
-    assert.ok(typeof plugin.config === "function");
-    assert.ok(typeof plugin["tool.execute.before"] === "function");
-    assert.ok(!("event" in plugin), "event hook must not exist in v1");
-  });
-
-  it("config hook preserves user agents", async () => {
-    const plugin: any = await BigLittlePlugin({} as any);
-    const cfg: any = { agent: { mine: { mode: "primary" } } };
-    await plugin.config(cfg);
-    assert.ok(cfg.agent.mine);
-    assert.ok(cfg.agent["bulk-reader"]);
-    assert.ok(cfg.agent["code-writer"]);
-  });
-
-  it("tool hook blocks big read and passes targeted read", async () => {
-    const plugin: any = await BigLittlePlugin({} as any, { minLines: 350 });
-    const dir = mkdtempSync(join(tmpdir(), "bl-wire-"));
+describe("v2 tool hook", () => {
+  it("blocks big full read, passes targeted read", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bl-v2-read-"));
     const big = join(dir, "big.txt");
-    writeFileSync(big, Array(400).fill("w").join("\n"));
-    await assert.rejects(
-      plugin["tool.execute.before"](
-        { tool: "read", sessionID: "s", callID: "c" },
-        { args: { filePath: big } }
-      )
-    );
-    await plugin["tool.execute.before"](
-      { tool: "read", sessionID: "s", callID: "c" },
-      { args: { filePath: big, limit: 5 } }
+    writeFileSync(big, Array(400).fill("x").join("\n"));
+    assert.throws(() => handleV2ToolBefore("read", { path: big }, 350));
+    assert.doesNotThrow(() =>
+      handleV2ToolBefore("read", { path: big, offset: 1, limit: 5 }, 350)
     );
     rmSync(dir, { recursive: true });
   });
 
-  it("options come from the second argument", async () => {
-    const plugin: any = await BigLittlePlugin({} as any, { minLines: 10 });
+  it("blocks big cat via shell, passes piped/small/non-string", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bl-v2-shell-"));
+    const big = join(dir, "big.txt");
+    const small = join(dir, "small.txt");
+    writeFileSync(big, Array(400).fill("y").join("\n"));
+    writeFileSync(small, "hi");
+    assert.throws(() => handleV2ToolBefore("shell", { command: `cat ${big}` }, 350));
+    assert.equal(handleV2ToolBefore("shell", { command: `cat ${small}` }, 350), undefined);
+    assert.equal(
+      handleV2ToolBefore("shell", { command: `cat ${big} | head -20` }, 350),
+      undefined
+    );
+    assert.equal(handleV2ToolBefore("shell", { command: "ls -la" }, 350), undefined);
+    assert.equal(handleV2ToolBefore("shell", { command: 12345 as any }, 350), undefined);
+    rmSync(dir, { recursive: true });
+  });
+
+  it("shell is the V2 contract (bash matched only defensively)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bl-v2-contract-"));
+    const big = join(dir, "big.txt");
+    writeFileSync(big, Array(400).fill("z").join("\n"));
+    // Contract: shell blocks.
+    assert.throws(() => handleV2ToolBefore("shell", { command: `cat ${big}` }, 350));
+    // Defensive: legacy bash name still blocks the same payload (one-line compat).
+    assert.throws(() => handleV2ToolBefore("bash", { command: `cat ${big}` }, 350));
+    // Unknown tools always pass.
+    assert.doesNotThrow(() => handleV2ToolBefore("webfetch", { url: big }, 350));
+    rmSync(dir, { recursive: true });
+  });
+});
+
+describe("V2 plugin wiring", () => {
+  it("default-exports id + setup (no legacy server export)", () => {
+    const mod: any = BigLittleModuleDefault;
+    assert.equal(mod.id, "big-little");
+    assert.equal(typeof mod.setup, "function");
+    assert.ok(!("server" in mod), "legacy server export must not exist");
+  });
+
+  it("setup registers agent transform + execute.before hook", async () => {
+    const mod: any = BigLittleModuleDefault;
+    let transformCb: any = null;
+    let hookName: string | null = null;
+    let hookCb: any = null;
+    const ctx: any = {
+      options: { minLines: 350 },
+      agent: {
+        transform: async (cb: any) => {
+          transformCb = cb;
+          return { dispose: async () => {} };
+        },
+      },
+      tool: {
+        hook: async (name: string, cb: any) => {
+          hookName = name;
+          hookCb = cb;
+          return { dispose: async () => {} };
+        },
+      },
+    };
+    await mod.setup(ctx);
+    assert.ok(transformCb, "agent.transform must be registered");
+    assert.equal(hookName, "execute.before");
+
+    // Replay the captured transform against a stub editor.
+    const updates: Array<{ id: string; info: any }> = [];
+    const editor: any = {
+      update: (id: string, fn: (draft: any) => void) => {
+        const draft: any = {};
+        fn(draft);
+        updates.push({ id, info: draft });
+      },
+    };
+    transformCb(editor);
+    const ids = updates.map((u) => u.id).sort();
+    assert.deepEqual(ids, ["bulk-reader", "code-writer"]);
+    for (const u of updates) {
+      assert.equal(u.info.mode, "subagent");
+      assert.ok(Array.isArray(u.info.permissions));
+      assert.ok(typeof u.info.system === "string");
+    }
+
+    // Captured hook blocks a big read event (V2 input shape: { path }).
+    const dir = mkdtempSync(join(tmpdir(), "bl-wire-"));
+    const big = join(dir, "big.txt");
+    writeFileSync(big, Array(400).fill("w").join("\n"));
+    await assert.rejects(hookCb({ tool: "read", input: { path: big } }));
+    await hookCb({ tool: "read", input: { path: big, limit: 5 } });
+    rmSync(dir, { recursive: true });
+  });
+
+  it("hook resolves relative paths via the session directory", async () => {
+    const mod: any = BigLittleModuleDefault;
+    let hookCb: any = null;
+    const dir = mkdtempSync(join(tmpdir(), "bl-sessdir-"));
+    writeFileSync(join(dir, "big.txt"), Array(400).fill("w").join("\n"));
+    let lookups = 0;
+    const ctx: any = {
+      options: { minLines: 350 },
+      agent: { transform: async () => ({ dispose: async () => {} }) },
+      session: {
+        get: async (input: any) => {
+          lookups++;
+          assert.equal(input.sessionID, "sess-1");
+          return { location: { directory: dir } };
+        },
+      },
+      tool: {
+        hook: async (_name: string, cb: any) => {
+          hookCb = cb;
+          return { dispose: async () => {} };
+        },
+      },
+    };
+    await mod.setup(ctx);
+    // Relative path blocks once the session directory is known ...
+    await assert.rejects(hookCb({ tool: "read", sessionID: "sess-1", input: { path: "big.txt" } }));
+    // ... and the lookup is cached (one call total across both invocations).
+    await hookCb({ tool: "read", sessionID: "sess-1", input: { path: "big.txt", limit: 5 } });
+    assert.equal(lookups, 1);
+    rmSync(dir, { recursive: true });
+  });
+
+  it("hook fails open when the session lookup fails", async () => {
+    const mod: any = BigLittleModuleDefault;
+    let hookCb: any = null;
+    const ctx: any = {
+      options: { minLines: 350 },
+      agent: { transform: async () => ({ dispose: async () => {} }) },
+      session: {
+        get: async () => {
+          throw new Error("boom");
+        },
+      },
+      tool: {
+        hook: async (_name: string, cb: any) => {
+          hookCb = cb;
+          return { dispose: async () => {} };
+        },
+      },
+    };
+    await mod.setup(ctx);
+    await hookCb({ tool: "read", sessionID: "sess-x", input: { path: "big.txt" } });
+  });
+
+  it("options come from ctx.options", async () => {
+    const mod: any = BigLittleModuleDefault;
+    let hookCb: any = null;
+    const ctx: any = {
+      options: { minLines: 10 },
+      agent: { transform: async () => ({ dispose: async () => {} }) },
+      tool: {
+        hook: async (_name: string, cb: any) => {
+          hookCb = cb;
+          return { dispose: async () => {} };
+        },
+      },
+    };
+    await mod.setup(ctx);
     const dir = mkdtempSync(join(tmpdir(), "bl-opts-"));
     const medium = join(dir, "medium.txt");
     writeFileSync(medium, "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk"); // 11 lines
-    await assert.rejects(
-      plugin["tool.execute.before"](
-        { tool: "read", sessionID: "s", callID: "c" },
-        { args: { filePath: medium } }
-      )
-    );
+    await assert.rejects(hookCb({ tool: "read", input: { path: medium } }));
     rmSync(dir, { recursive: true });
   });
 });

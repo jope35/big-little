@@ -1,23 +1,31 @@
 {
   "name": "big-little",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "description": "OpenCode plugin that routes large reads to cheap worker subagents",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "./index.js",
   "types": "dist/index.d.ts",
   "exports": {
-    ".": { "import": "./dist/index.js", "types": "./dist/index.d.ts" },
-    "./server": "./dist/index.js"
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "index.js",
+    "README.md"
+  ],
   "license": "MIT",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "tsc -p tsconfig.test.json && node --test test/plugin.test.ts",
     "prepublishOnly": "npm run build"
   },
+  "dependencies": {
+    "@opencode/plugin": "^2.0.16"
+  },
   "devDependencies": {
-    "@opencode-ai/plugin": "^1.18.27",
     "typescript": "^5.6.0",
     "@types/node": "^22.0.0"
   }
